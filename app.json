@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "FigGo",
+    "slug": "figgo",
+    "scheme": "figgo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-notifications",
+      "expo-location",
+      "expo-image-picker"
+    ],
+    "splash": {
+      "backgroundColor": "#0D0D0D"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.figgo.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Usamos sua localizacao para mostrar pontos de troca proximos.",
+        "NSCameraUsageDescription": "Usamos a camera para fotos em posts.",
+        "NSPhotoLibraryUsageDescription": "Usamos a galeria para publicar fotos em posts."
+      }
+    },
+    "android": {
+      "package": "com.figgo.app"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+      }
+    }
+  }
+}

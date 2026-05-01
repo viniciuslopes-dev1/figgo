@@ -1,0 +1,12 @@
+node_modules
+.expo
+.expo-shared
+.idea
+dist
+build
+coverage
+*.log
+.env
+.DS_Store
+google-services.json
+GoogleService-Info.plist
