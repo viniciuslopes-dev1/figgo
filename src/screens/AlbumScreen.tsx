@@ -1,93 +1,77 @@
+import { useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { useMemo, useState } from "react";
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  useWindowDimensions,
-} from "react-native";
-import { AppScreen } from "@/components/AppScreen";
-import { GlassCard, Pill } from "@/components/Ui";
-import { tokens } from "@/styles/tokens";
-
-type StickerCycle = 0 | 1 | 2 | 3;
-type TeamDef = { name: string; code: string };
-type GroupDef = { name: string; teams: TeamDef[] };
-
-const specialSections = [
-  { title: "FWC Especiais", codes: ["FWC1", "FWC2", "FWC3", "FWC4", "FWC5"] },
-  { title: "FWC Bola e Paises", codes: ["FWC6", "FWC7", "FWC8", "FWC9"] },
-  {
-    title: "FWC Historia",
-    codes: ["FWC10", "FWC11", "FWC12", "FWC13", "FWC14", "FWC15", "FWC16", "FWC17", "FWC18", "FWC19", "FWC20"],
-  },
-] as const;
-
-const groups: GroupDef[] = [
-  { name: "Grupo A", teams: [{ name: "Mexico", code: "MEX" }, { name: "Estados Unidos", code: "USA" }, { name: "Canada", code: "CAN" }, { name: "Nova Zelandia", code: "NZL" }] },
-  { name: "Grupo B", teams: [{ name: "Argentina", code: "ARG" }, { name: "Franca", code: "FRA" }, { name: "Africa do Sul", code: "RSA" }, { name: "Coreia do Sul", code: "KOR" }] },
-  { name: "Grupo C", teams: [{ name: "Brasil", code: "BRA" }, { name: "Japao", code: "JPN" }, { name: "Nigeria", code: "NGA" }, { name: "Noruega", code: "NOR" }] },
-  { name: "Grupo D", teams: [{ name: "Inglaterra", code: "ENG" }, { name: "Holanda", code: "NED" }, { name: "Costa Rica", code: "CRC" }, { name: "Camaroes", code: "CMR" }] },
-  { name: "Grupo E", teams: [{ name: "Espanha", code: "ESP" }, { name: "Uruguai", code: "URU" }, { name: "Egito", code: "EGY" }, { name: "Australia", code: "AUS" }] },
-  { name: "Grupo F", teams: [{ name: "Alemanha", code: "GER" }, { name: "Dinamarca", code: "DEN" }, { name: "Gana", code: "GHA" }, { name: "Panama", code: "PAN" }] },
-  { name: "Grupo G", teams: [{ name: "Portugal", code: "POR" }, { name: "Suica", code: "SUI" }, { name: "Ira", code: "IRN" }, { name: "Honduras", code: "HON" }] },
-  { name: "Grupo H", teams: [{ name: "Belgica", code: "BEL" }, { name: "Croacia", code: "CRO" }, { name: "Tunisia", code: "TUN" }, { name: "Jamaica", code: "JAM" }] },
-  { name: "Grupo I", teams: [{ name: "Italia", code: "ITA" }, { name: "Servia", code: "SRB" }, { name: "Arabia Saudita", code: "KSA" }, { name: "Iraque", code: "IRQ" }] },
-  { name: "Grupo J", teams: [{ name: "Colombia", code: "COL" }, { name: "Marrocos", code: "MAR" }, { name: "Venezuela", code: "VEN" }, { name: "Emirados Arabes", code: "UAE" }] },
-  { name: "Grupo K", teams: [{ name: "Chile", code: "CHI" }, { name: "Suecia", code: "SWE" }, { name: "Costa do Marfim", code: "CIV" }, { name: "Uzbequistao", code: "UZB" }] },
-  { name: "Grupo L", teams: [{ name: "Paraguai", code: "PAR" }, { name: "Polonia", code: "POL" }, { name: "Argelia", code: "ALG" }, { name: "China", code: "CHN" }] },
-];
-
-const makeTeamStickers = (code: string) => Array.from({ length: 20 }, (_, i) => `${code}${i + 1}`);
-const allTeamStickers = groups.flatMap((g) => g.teams.flatMap((t) => makeTeamStickers(t.code)));
-const allSpecialStickers = specialSections.flatMap((s) => s.codes);
-const allStickers = [...allSpecialStickers, ...allTeamStickers];
+import { router } from "expo-router";
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { specialSections, StickerCycle } from "@/constants/albumData";
+import { design } from "@/constants/design";
+import { AppScreen } from "@/components/layout/AppScreen";
+import { GlassCard, Pill } from "@/components/ui";
+import { useAlbumCollection } from "@/hooks/useAlbumCollection";
+import { createPost } from "@/services/feedService";
+import { useSessionStore } from "@/store/sessionStore";
+import { serializeAlbumProgressPost } from "@/utils/albumProgressPost";
+import { isCollected, isRepeated, makeTeamStickers } from "@/utils/albumUtils";
 
 export function AlbumScreen() {
-  const { width } = useWindowDimensions();
-  const [query, setQuery] = useState("");
-  const [selectedFilter, setSelectedFilter] = useState<"all" | "missing" | "repeats" | "complete">("all");
-  const [showSpecial, setShowSpecial] = useState(true);
-  const [expandedTeams, setExpandedTeams] = useState<Record<string, boolean>>({ BRA: true });
-  const [states, setStates] = useState<Record<string, StickerCycle>>({});
+  const user = useSessionStore((state) => state.user);
+  const [shareVisible, setShareVisible] = useState(false);
+  const [shareCaption, setShareCaption] = useState("");
+  const [sharing, setSharing] = useState(false);
+  const {
+    query,
+    setQuery,
+    selectedFilter,
+    setSelectedFilter,
+    showSpecial,
+    expandedTeams,
+    getCycle,
+    filteredGroups,
+    filteredSpecialStickers,
+    exactStickerSearch,
+    totals,
+    toggleSticker,
+    toggleTeam,
+    getGroupProgress,
+  } = useAlbumCollection();
 
-  const columns = width >= 1024 ? 3 : width >= 700 ? 2 : 1;
-  const teamWidth = (width - 28 - 24 - (columns - 1) * 8) / columns;
-  const getCycle = (id: string): StickerCycle => states[id] ?? 0;
-  const nextCycle = (current: StickerCycle): StickerCycle => (current === 0 ? 1 : current === 1 ? 2 : current === 2 ? 3 : 0);
+  const allSpecialCodes = specialSections.flatMap((section) => section.codes);
+  const specialCollected = allSpecialCodes.filter((code) => isCollected(getCycle(code))).length;
+  const specialRepeated = allSpecialCodes.filter((code) => isRepeated(getCycle(code))).length;
+  const specialMissing = allSpecialCodes.length - specialCollected;
+  const specialProgress = Math.round((specialCollected / allSpecialCodes.length) * 100);
+  const specialVisibleCodes = filteredSpecialStickers;
 
-  const isCollected = (cycle: StickerCycle) => cycle === 1 || cycle === 2 || cycle === 3;
-  const isRepeated = (cycle: StickerCycle) => cycle === 2;
-  const totalCollected = allStickers.filter((s) => isCollected(getCycle(s))).length;
-  const totalRepeated = allStickers.filter((s) => isRepeated(getCycle(s))).length;
-  const globalProgress = Math.round((totalCollected / allStickers.length) * 100);
+  async function handleShareProgress() {
+    if (!user?.id) {
+      Alert.alert("Login necessario", "Entre na sua conta para compartilhar seu album.");
+      return;
+    }
 
-  const filteredGroups = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    return groups
-      .map((group) => {
-        const teams = group.teams.filter((team) => {
-          const stickers = makeTeamStickers(team.code);
-          const collected = stickers.filter((s) => isCollected(getCycle(s))).length;
-          const repeated = stickers.filter((s) => isRepeated(getCycle(s))).length;
-          const done = collected === 20;
-          const matchesText = normalized.length === 0 || team.name.toLowerCase().includes(normalized) || team.code.toLowerCase().includes(normalized);
-          if (!matchesText) return false;
-          if (selectedFilter === "missing") return !done;
-          if (selectedFilter === "repeats") return repeated > 0;
-          if (selectedFilter === "complete") return done;
-          return true;
-        });
-        return { ...group, teams };
-      })
-      .filter((g) => g.teams.length > 0);
-  }, [query, selectedFilter, states]);
-
-  const toggleSticker = (id: string) => setStates((current) => ({ ...current, [id]: nextCycle(current[id] ?? 0) }));
-  const toggleTeam = (code: string) => setExpandedTeams((prev) => ({ ...prev, [code]: !prev[code] }));
+    setSharing(true);
+    try {
+      await createPost({
+        userId: user.id,
+        content: serializeAlbumProgressPost({
+          kind: "album_progress",
+          caption: shareCaption,
+          progress: totals.progress,
+          totalCollected: totals.totalCollected,
+          totalStickers: totals.totalStickers,
+          totalRepeated: totals.totalRepeated,
+          missing: totals.totalStickers - totals.totalCollected,
+        }),
+      });
+      setShareCaption("");
+      setShareVisible(false);
+      Alert.alert("Album", "Progresso publicado no feed.");
+      router.push("/(tabs)/feed");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Nao foi possivel publicar agora.";
+      Alert.alert("Publicacao", message);
+    } finally {
+      setSharing(false);
+    }
+  }
 
   return (
     <AppScreen>
@@ -101,57 +85,91 @@ export function AlbumScreen() {
 
         <GlassCard>
           <View style={styles.progressBlock}>
-            <View>
-              <Text style={styles.progressLabel}>Progresso</Text>
-              <Text style={styles.progressValue}>{globalProgress}%</Text>
+            <View style={styles.progressTop}>
+              <View>
+                <Text style={styles.progressLabel}>Progresso</Text>
+                <Text style={styles.progressValue}>{totals.progress}%</Text>
+              </View>
+              <Pressable style={styles.shareButton} onPress={() => setShareVisible(true)}>
+                <Ionicons name="share-social-outline" size={17} color="#061D0D" />
+                <Text style={styles.shareButtonText}>Postar</Text>
+              </Pressable>
             </View>
             <View style={styles.progressRail}>
-              <View style={[styles.progressFill, { width: `${globalProgress}%` }]} />
+              <View style={[styles.progressFill, { width: `${totals.progress}%` }]} />
             </View>
           </View>
 
           <View style={styles.statsGrid}>
-            <MiniStat label="Coletadas" value={`${totalCollected}`} tone="#DDE4EE" />
-            <MiniStat label="Faltam" value={`${allStickers.length - totalCollected}`} tone="#F8D064" />
-            <MiniStat label="Repetidas" value={`${totalRepeated}`} tone="#82AEFF" />
+            <MiniStat label="Coletadas" value={`${totals.totalCollected}`} tone="#DDE4EE" />
+            <MiniStat label="Faltam" value={`${totals.totalStickers - totals.totalCollected}`} tone="#F8D064" />
+            <MiniStat label="Repetidas" value={`${totals.totalRepeated}`} tone="#82AEFF" />
           </View>
         </GlassCard>
 
         <View style={styles.searchWrap}>
           <Ionicons name="search" size={16} color="#92A4BD" />
-          <TextInput value={query} onChangeText={setQuery} placeholder="Pesquisar selecao (ex: Brasil)" placeholderTextColor="#6F8098" style={styles.searchInput} />
+          <TextInput value={query} onChangeText={setQuery} placeholder="Pesquisar selecao ou figurinha (ex: Brasil, MEX 10)" placeholderTextColor="#6F8098" style={styles.searchInput} />
         </View>
+
+        {exactStickerSearch && (
+          <GlassCard>
+            <View style={styles.exactSearchResult}>
+              <View>
+                <Text style={styles.exactSearchCode}>{exactStickerSearch.code}</Text>
+                <Text style={styles.exactSearchStatus}>
+                  {exactStickerSearch.hasSticker ? (exactStickerSearch.isRepeated ? "Voce tem repetida" : "Voce ja tem") : "Voce ainda nao tem"}
+                </Text>
+              </View>
+              <StickerCard code={exactStickerSearch.code} cycle={exactStickerSearch.cycle} onPress={() => toggleSticker(exactStickerSearch.code)} />
+            </View>
+          </GlassCard>
+        )}
 
         <View style={styles.filters}>
           <Pill label="Todas" active={selectedFilter === "all"} onPress={() => setSelectedFilter("all")} />
+          <Pill label="Especiais" active={selectedFilter === "specials"} onPress={() => setSelectedFilter("specials")} />
           <Pill label="Faltando completar" active={selectedFilter === "missing"} onPress={() => setSelectedFilter("missing")} />
           <Pill label="Com repetidas" active={selectedFilter === "repeats"} onPress={() => setSelectedFilter("repeats")} />
           <Pill label="100% completas" active={selectedFilter === "complete"} onPress={() => setSelectedFilter("complete")} />
-          <Pill label="Mostrar especiais" active={showSpecial} onPress={() => setShowSpecial((v) => !v)} />
         </View>
 
-        {showSpecial && (
+        {showSpecial && selectedFilter !== "complete" && (
           <GlassCard>
             <View style={styles.specialHeader}>
-              <Text style={styles.sectionTitle}>Figurinhas Especiais FWC</Text>
-            </View>
-            {specialSections.map((section) => (
-              <View key={section.title} style={styles.specialBlock}>
-                <Text style={styles.specialTitle}>{section.title}</Text>
-                <View style={styles.stickerGrid}>
-                  {section.codes.map((code) => (
-                    <StickerCard key={code} code={code} cycle={getCycle(code)} onPress={() => toggleSticker(code)} />
-                  ))}
-                </View>
+              <View>
+                <Text style={styles.sectionTitle}>Figurinhas Especiais FWC</Text>
+                <Text style={styles.teamSubline}>FWC - {specialProgress}% completo</Text>
               </View>
-            ))}
+              <Text style={styles.teamStat}>{specialCollected}/{allSpecialCodes.length}</Text>
+            </View>
+            <View style={styles.teamDetailStats}>
+              <MiniStat label="Adicionadas" value={`${specialCollected}`} tone="#DDE4EE" />
+              <MiniStat label="Faltam" value={`${specialMissing}`} tone="#F8D064" />
+              <MiniStat label="Repetidas" value={`${specialRepeated}`} tone="#82AEFF" />
+            </View>
+            <View style={styles.teamDetailRail}>
+              <View style={[styles.teamDetailFill, { width: `${specialProgress}%` }]} />
+            </View>
+            {specialSections.map((section) => {
+              const sectionCodes = section.codes.filter((code) => specialVisibleCodes.includes(code));
+              if (!sectionCodes.length) return null;
+              return (
+                <View key={section.title} style={styles.specialBlock}>
+                  <Text style={styles.specialTitle}>{section.title}</Text>
+                  <View style={styles.stickerGrid}>
+                    {sectionCodes.map((code) => (
+                      <StickerCard key={code} code={code} cycle={getCycle(code)} onPress={() => toggleSticker(code)} />
+                    ))}
+                  </View>
+                </View>
+              );
+            })}
           </GlassCard>
         )}
 
         {filteredGroups.map((group) => {
-          const groupStickers = group.teams.flatMap((team) => makeTeamStickers(team.code));
-          const groupCollected = groupStickers.filter((s) => isCollected(getCycle(s))).length;
-          const groupProgress = Math.round((groupCollected / groupStickers.length) * 100);
+          const groupProgress = getGroupProgress(group);
 
           return (
             <GlassCard key={group.name}>
@@ -168,24 +186,46 @@ export function AlbumScreen() {
                   const stickers = makeTeamStickers(team.code);
                   const collected = stickers.filter((s) => isCollected(getCycle(s))).length;
                   const repeated = stickers.filter((s) => isRepeated(getCycle(s))).length;
+                  const missing = stickers.length - collected;
+                  const teamProgress = Math.round((collected / stickers.length) * 100);
                   const expanded = Boolean(expandedTeams[team.code]);
+                  const visibleStickers = selectedFilter === "missing" ? stickers.filter((code) => !isCollected(getCycle(code))) : stickers;
                   return (
-                    <View key={team.code} style={[styles.teamCard, { width: teamWidth > 240 ? 240 : teamWidth }]}>
+                    <View
+                      key={team.code}
+                      style={[
+                        styles.teamCard,
+                        expanded ? styles.teamCardExpanded : styles.teamCardCompact,
+                      ]}
+                    >
                       <Pressable style={styles.teamHeader} onPress={() => toggleTeam(team.code)}>
-                        <Text style={styles.teamName}>{team.name}</Text>
+                        <View style={styles.teamTitleWrap}>
+                          <Text style={styles.teamName}>{team.name}</Text>
+                          {expanded && <Text style={styles.teamSubline}>{team.code} - {teamProgress}% completo</Text>}
+                        </View>
                         <View style={styles.teamMeta}>
                           <Text style={styles.teamStat}>{collected}/20</Text>
                           <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={16} color="#9EB0C8" />
                         </View>
                       </Pressable>
                       {expanded && (
-                        <View style={styles.stickerGrid}>
-                          {stickers.map((code) => (
-                            <StickerCard key={code} code={code} cycle={getCycle(code)} onPress={() => toggleSticker(code)} />
-                          ))}
+                        <View style={styles.teamDetail}>
+                          <View style={styles.teamDetailStats}>
+                            <MiniStat label="Adicionadas" value={`${collected}`} tone="#DDE4EE" />
+                            <MiniStat label="Faltam" value={`${missing}`} tone="#F8D064" />
+                            <MiniStat label="Repetidas" value={`${repeated}`} tone="#82AEFF" />
+                          </View>
+                          <View style={styles.teamDetailRail}>
+                            <View style={[styles.teamDetailFill, { width: `${teamProgress}%` }]} />
+                          </View>
+                          <View style={styles.stickerGrid}>
+                            {visibleStickers.map((code) => (
+                              <StickerCard key={code} code={code} cycle={getCycle(code)} onPress={() => toggleSticker(code)} />
+                            ))}
+                          </View>
                         </View>
                       )}
-                      {repeated > 0 && <Text style={styles.repeatLabel}>{repeated} repetidas</Text>}
+                      {!expanded && repeated > 0 && <Text style={styles.repeatLabel}>{repeated} repetidas</Text>}
                     </View>
                   );
                 })}
@@ -194,6 +234,42 @@ export function AlbumScreen() {
           );
         })}
       </ScrollView>
+
+      <Modal visible={shareVisible} transparent animationType="fade" onRequestClose={() => setShareVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.shareModal}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Compartilhar progresso</Text>
+              <Pressable onPress={() => setShareVisible(false)} disabled={sharing}>
+                <Text style={styles.modalClose}>Cancelar</Text>
+              </Pressable>
+            </View>
+            <View style={styles.progressPostPreview}>
+              <Text style={styles.previewKicker}>Album FigGo</Text>
+              <Text style={styles.previewTitle}>Meu album esta {totals.progress}% completo</Text>
+              <View style={styles.previewRail}>
+                <View style={[styles.previewFill, { width: `${totals.progress}%` }]} />
+              </View>
+              <Text style={styles.previewMeta}>
+                {totals.totalCollected}/{totals.totalStickers} figurinhas - {totals.totalRepeated} repetidas
+              </Text>
+              <Text style={styles.previewMissing}>Faltam {totals.totalStickers - totals.totalCollected} figurinhas para completar</Text>
+            </View>
+            <TextInput
+              value={shareCaption}
+              onChangeText={setShareCaption}
+              placeholder="Legenda opcional"
+              placeholderTextColor={design.colors.textMuted}
+              multiline
+              editable={!sharing}
+              style={styles.captionInput}
+            />
+            <Pressable style={styles.publishButton} onPress={handleShareProgress} disabled={sharing}>
+              <Text style={styles.publishButtonText}>{sharing ? "Publicando..." : "Publicar no feed"}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </AppScreen>
   );
 }
@@ -244,7 +320,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   title: {
-    color: "#fff",
+    color: design.colors.text,
     fontSize: 24,
     fontWeight: "800",
     marginTop: 2,
@@ -253,6 +329,26 @@ const styles = StyleSheet.create({
   progressBlock: {
     paddingTop: 12,
     paddingHorizontal: 12,
+  },
+  progressTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+  },
+  shareButton: {
+    minHeight: 36,
+    borderRadius: 12,
+    backgroundColor: design.colors.green,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  shareButtonText: {
+    color: "#061D0D",
+    fontSize: 13,
+    fontWeight: "800",
   },
   progressLabel: {
     color: "#A6B2C4",
@@ -309,7 +405,7 @@ const styles = StyleSheet.create({
   },
   searchWrap: {
     borderWidth: 1,
-    borderColor: tokens.colors.border,
+    borderColor: design.colors.border,
     borderRadius: 12,
     backgroundColor: "#090D13",
     paddingHorizontal: 10,
@@ -379,11 +475,14 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   sectionTitle: {
-    color: "#F2F5FA",
+    color: design.colors.text,
     fontSize: 15,
     fontWeight: "800",
   },
   specialHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 12,
     paddingTop: 12,
   },
@@ -435,18 +534,35 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(8,12,18,0.94)",
     padding: 8,
   },
+  teamCardCompact: {
+    width: "100%",
+  },
+  teamCardExpanded: {
+    width: "100%",
+    borderColor: "rgba(44,255,126,0.34)",
+    backgroundColor: "rgba(9,15,23,0.96)",
+    padding: 10,
+  },
   teamHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 8,
   },
+  teamTitleWrap: {
+    flex: 1,
+    paddingRight: 8,
+  },
   teamName: {
     color: "#E4EBF5",
     fontSize: 13,
     fontWeight: "700",
-    flex: 1,
-    paddingRight: 6,
+  },
+  teamSubline: {
+    color: "#8FA0B7",
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 2,
   },
   teamMeta: {
     flexDirection: "row",
@@ -464,9 +580,144 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 2,
   },
+  teamDetail: {
+    gap: 10,
+  },
+  teamDetailStats: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+  },
+  teamDetailRail: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#172435",
+    overflow: "hidden",
+  },
+  teamDetailFill: {
+    height: "100%",
+    backgroundColor: design.colors.green,
+  },
   stickerGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.56)",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  shareModal: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(156,176,202,0.22)",
+    backgroundColor: "rgba(10,16,25,0.98)",
+    padding: 14,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  modalTitle: {
+    color: "#F6FAFF",
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  modalClose: {
+    color: "#C9D9FF",
+    fontSize: 13.5,
+    fontWeight: "600",
+  },
+  progressPostPreview: {
+    borderWidth: 1,
+    borderColor: "rgba(245,197,66,0.42)",
+    borderRadius: 16,
+    backgroundColor: "rgba(21,25,24,0.96)",
+    padding: 14,
+  },
+  previewKicker: {
+    color: "#F8D064",
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  previewTitle: {
+    color: "#F7F7F8",
+    fontSize: 20,
+    fontWeight: "900",
+    marginTop: 5,
+  },
+  previewRail: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#1B2635",
+    marginTop: 12,
+    overflow: "hidden",
+  },
+  previewFill: {
+    height: "100%",
+    backgroundColor: design.colors.green,
+  },
+  previewMeta: {
+    color: "#DDE4EE",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 10,
+  },
+  previewMissing: {
+    color: "#9CB0CA",
+    fontSize: 12.5,
+    fontWeight: "600",
+    marginTop: 4,
+  },
+  captionInput: {
+    minHeight: 74,
+    color: design.colors.text,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(156,176,202,0.2)",
+    backgroundColor: "rgba(14,23,34,0.74)",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    textAlignVertical: "top",
+    marginTop: 12,
+    fontSize: 14,
+  },
+  publishButton: {
+    minHeight: 42,
+    borderRadius: 12,
+    backgroundColor: design.colors.green,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 12,
+  },
+  publishButtonText: {
+    color: "#06220F",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  exactSearchResult: {
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  exactSearchCode: {
+    color: "#F7F7F8",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  exactSearchStatus: {
+    color: "#9CB0CA",
+    fontSize: 12.5,
+    fontWeight: "700",
+    marginTop: 4,
   },
 });

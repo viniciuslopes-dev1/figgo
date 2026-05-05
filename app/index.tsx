@@ -3,7 +3,7 @@ import { ActivityIndicator, View } from "react-native";
 import { useSessionStore } from "@/store/sessionStore";
 
 export default function Index() {
-  const { ready, user } = useSessionStore();
+  const { ready, user, needsUsername } = useSessionStore();
   if (!ready) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#0D0D0D" }}>
@@ -12,5 +12,6 @@ export default function Index() {
     );
   }
   if (!user) return <Redirect href="/login" />;
-  return <Redirect href="/(tabs)/mapa" />;
+  if (needsUsername) return <Redirect href="/username" />;
+  return <Redirect href="/(tabs)/feed" />;
 }

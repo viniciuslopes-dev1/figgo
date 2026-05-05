@@ -6,8 +6,7 @@ App mobile premium para colecionadores de figurinhas da Copa.
 
 - React Native + Expo
 - Expo Router
-- Firebase (Auth, Firestore, Storage)
-- Expo Notifications
+- Supabase (Auth)
 - React Native Maps
 - Zustand
 
@@ -22,17 +21,11 @@ npm install
 2. Crie `.env` com:
 
 ```bash
-EXPO_PUBLIC_FIREBASE_API_KEY=
-EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=
-EXPO_PUBLIC_FIREBASE_PROJECT_ID=
-EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=
-EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
-EXPO_PUBLIC_FIREBASE_APP_ID=
+EXPO_PUBLIC_SUPABASE_URL=
+EXPO_PUBLIC_SUPABASE_ANON_KEY=
 ```
 
-3. Para Android, adicione `google-services.json` na raiz.
-4. Para iOS, adicione `GoogleService-Info.plist` na raiz.
-5. Rode:
+3. Rode:
 
 ```bash
 npx expo start -c
@@ -40,16 +33,18 @@ npx expo start -c
 
 ## Estrutura
 
-- `app/` rotas (login + tabs mapa/feed/album/perfil)
-- `src/store/` estado global (sessao, mapa, feed, album)
-- `src/services/` firebase, firestore e notificacoes
-- `src/theme/` tema premium dark/light
-- `firebase/` regras Firestore e Storage
-- `admin-panel/` especificacao do painel de moderacao
+- `app/` rotas com Expo Router
+- `src/components/` componentes reutilizaveis de layout e UI
+- `src/screens/` telas do app
+- `src/constants/` dados e tokens centralizados
+- `src/hooks/` hooks de dominio (album)
+- `src/utils/` utilitarios puros
+- `src/services/` integracoes (supabase)
+- `src/store/` estado global (sessao)
+- `src/theme/` contexto de tema
 
 ## Proximos passos de producao
 
-- Integrar login Google/Apple/Email real
-- Persistir feed/mapa/album integralmente no Firestore
-- Ativar FCM com Cloud Functions para eventos sociais
-- Publicar admin web em Firebase Hosting
+- Integrar login social (Google/Apple) via Supabase Auth
+- Persistir feed/mapa/album em banco de dados
+- Ajustar fluxo de recuperacao de senha com deep link de app

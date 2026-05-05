@@ -9,9 +9,7 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-notifications",
-      "expo-location",
-      "expo-image-picker"
+      "expo-notifications"
     ],
     "splash": {
       "backgroundColor": "#0D0D0D"

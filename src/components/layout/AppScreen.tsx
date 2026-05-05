@@ -1,6 +1,7 @@
-import { LinearGradient } from "expo-linear-gradient";
 import { ReactNode } from "react";
-import { SafeAreaView, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export function AppScreen({ children }: { children: ReactNode }) {
   return (
@@ -17,4 +18,3 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { flex: 1 },
 });
-
