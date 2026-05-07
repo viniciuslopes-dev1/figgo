@@ -9,7 +9,13 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Usamos a camera para escanear o codigo das figurinhas e adicionar ao album."
+        }
+      ]
     ],
     "splash": {
       "backgroundColor": "#0D0D0D"
@@ -19,16 +25,21 @@
       "bundleIdentifier": "com.figgo.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Usamos sua localizacao para mostrar pontos de troca proximos.",
-        "NSCameraUsageDescription": "Usamos a camera para fotos em posts.",
+        "NSCameraUsageDescription": "Usamos a camera para escanear o codigo das figurinhas e adicionar ao album.",
         "NSPhotoLibraryUsageDescription": "Usamos a galeria para publicar fotos em posts."
       }
     },
     "android": {
-      "package": "com.figgo.app"
+      "package": "com.figgo.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "extra": {
+      "router": {},
       "eas": {
-        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+        "projectId": "bb9e2f19-a092-4b89-8bee-2c8644db975a"
       }
     }
   }

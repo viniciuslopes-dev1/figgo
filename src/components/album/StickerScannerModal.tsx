@@ -13,7 +13,9 @@ import {
 } from "react-native";
 import {
   buildStickerLookupMap,
+  OcrUnavailableError,
   detectStickerCodeFromImage,
+  resolveStickerCodeFromText,
   type StickerLookup,
 } from "@/services/stickerScannerService";
 
@@ -31,6 +33,7 @@ export function StickerScannerModal({ visible, onClose, onDetected }: StickerSca
   const validCodes = useMemo(() => new Set(lookupMap.keys()), [lookupMap]);
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView | null>(null);
+  const processingRef = useRef(false);
   const scanLineAnim = useRef(new Animated.Value(0)).current;
   const [manualInput, setManualInput] = useState("");
   const [scannerStatus, setScannerStatus] = useState("Posicione o codigo da figurinha dentro da area");
@@ -44,6 +47,7 @@ export function StickerScannerModal({ visible, onClose, onDetected }: StickerSca
     if (!visible) return;
     void requestPermission();
     setOcrUnavailable(false);
+    setScannerStatus("Posicione o codigo da figurinha dentro da area");
   }, [requestPermission, visible]);
 
   useEffect(() => {
@@ -83,12 +87,7 @@ export function StickerScannerModal({ visible, onClose, onDetected }: StickerSca
   );
 
   const normalizeManualCode = useCallback((raw: string) => {
-    const normalized = raw.toUpperCase().replace(/\s+/g, "").replace(/[^A-Z0-9]/g, "");
-    const match = normalized.match(/^(FWC|[A-Z]{3})(\d{1,3})$/);
-    if (!match) return null;
-    const code = `${match[1]}${Number(match[2])}`;
-    if (!validCodes.has(code)) return null;
-    return code;
+    return resolveStickerCodeFromText(raw, validCodes);
   }, [validCodes]);
 
   const scanFromCameraFrame = useCallback(async () => {
@@ -96,14 +95,18 @@ export function StickerScannerModal({ visible, onClose, onDetected }: StickerSca
       setScannerStatus("OCR automatico indisponivel neste build. Use o codigo manual.");
       return;
     }
-    if (!cameraRef.current || !cameraReady || processing || !visible) return;
+    if (!cameraRef.current || !cameraReady || processingRef.current || !visible) return;
+    processingRef.current = true;
     setProcessing(true);
     try {
-      setScannerStatus("Escaneando...");
+      setScannerStatus("Lendo figurinha...");
       const picture: CameraCapturedPicture = await cameraRef.current.takePictureAsync({
-        quality: 0.35,
-        skipProcessing: true,
+        quality: 0.72,
+        skipProcessing: false,
       });
+      if (Math.min(picture.width ?? 0, picture.height ?? 0) < 720) {
+        setScannerStatus("Imagem pequena. Aproxime um pouco o codigo.");
+      }
       const code = await detectStickerCodeFromImage(picture.uri, validCodes, {
         width: picture.width,
         height: picture.height,
@@ -118,34 +121,37 @@ export function StickerScannerModal({ visible, onClose, onDetected }: StickerSca
         setScannerStatus(`Codigo ${code} ja lido. Aguarde...`);
         return;
       }
+      setScannerStatus(`Codigo detectado: ${code}. Figurinha valida.`);
       emitDetection(code);
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
-      if (message === "OCR_UNAVAILABLE") {
+      if (error instanceof OcrUnavailableError || message === "OCR_UNAVAILABLE") {
         setOcrUnavailable(true);
         setScannerStatus("OCR automatico indisponivel neste build. Use o codigo manual.");
       } else {
         setScannerStatus("Falha na leitura OCR. Tente novamente ou use codigo manual.");
       }
     } finally {
+      processingRef.current = false;
       setProcessing(false);
     }
-  }, [cameraReady, emitDetection, lastDetectedAt, lastDetectedCode, ocrUnavailable, processing, validCodes, visible]);
+  }, [cameraReady, emitDetection, lastDetectedAt, lastDetectedCode, ocrUnavailable, validCodes, visible]);
 
   useEffect(() => {
-    if (!visible || !permission?.granted) return;
+    if (!visible || !permission?.granted || ocrUnavailable) return;
     const timer = setInterval(() => {
       void scanFromCameraFrame();
     }, SCAN_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [permission?.granted, scanFromCameraFrame, visible]);
+  }, [ocrUnavailable, permission?.granted, scanFromCameraFrame, visible]);
 
   function handleManualSubmit() {
     const code = normalizeManualCode(manualInput);
     if (!code) {
-      setScannerStatus("Codigo invalido. Exemplo valido: SUI14");
+      setScannerStatus("Figurinha invalida. Exemplo valido: SUI14");
       return;
     }
+    setScannerStatus(`Codigo detectado: ${code}. Figurinha valida.`);
     emitDetection(code);
   }
 
@@ -172,7 +178,7 @@ export function StickerScannerModal({ visible, onClose, onDetected }: StickerSca
 
         <View style={styles.overlay}>
           <View style={styles.topBar}>
-            <Text style={styles.scanLabel}>Escaneando...</Text>
+            <Text style={styles.scanLabel}>{processing ? "Lendo figurinha..." : "Escaneando..."}</Text>
             <Pressable style={styles.closeButton} onPress={onClose}>
               <Ionicons name="close" size={20} color="#E7F1FF" />
             </Pressable>
