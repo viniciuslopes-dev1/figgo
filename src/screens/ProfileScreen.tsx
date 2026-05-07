@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
   Alert,
@@ -44,6 +45,11 @@ export function ProfileScreen() {
 
   const viewedUserId = typeof params.userId === "string" && params.userId ? params.userId : user?.id ?? null;
   const isOwnProfile = Boolean(user?.id && viewedUserId && user.id === viewedUserId);
+  const refreshOwnAlbumTotals = useCallback(async () => {
+    if (!isOwnProfile || !viewedUserId) return;
+    const states = await loadAlbumStatesForUser(viewedUserId);
+    setAlbumTotals(computeAlbumTotalsFromStates(states));
+  }, [isOwnProfile, viewedUserId]);
 
   useEffect(() => {
     if (!viewedUserId) {
@@ -94,6 +100,13 @@ export function ProfileScreen() {
       active = false;
     };
   }, [isOwnProfile, viewedUserId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshOwnAlbumTotals();
+      return undefined;
+    }, [refreshOwnAlbumTotals]),
+  );
 
   async function handleChangeAvatar() {
     if (!isOwnProfile || !user?.id) return;
