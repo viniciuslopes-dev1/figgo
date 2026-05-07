@@ -18,6 +18,8 @@
       ]
     ],
     "splash": {
+      "image": "./imagens/tela_de_login/logo_login.png",
+      "resizeMode": "contain",
       "backgroundColor": "#0D0D0D"
     },
     "ios": {
