@@ -81,11 +81,39 @@ export function useAlbumCollection() {
     };
   }, [query, states]);
 
-  const toggleSticker = (id: string) => {
+  const setStickerAmount = (id: string, amount: number) => {
+    const normalizedAmount = Math.max(0, Math.floor(amount));
+    setStates((currentState) => {
+      const nextState = { ...currentState };
+      if (normalizedAmount <= 0) {
+        delete nextState[id];
+      } else {
+        nextState[id] = normalizedAmount;
+      }
+      return nextState;
+    });
+  };
+
+  const incrementSticker = (id: string) => {
     setStates((currentState) => ({
       ...currentState,
       [id]: nextCycle(currentState[id] ?? 0),
     }));
+  };
+
+  const decrementSticker = (id: string) => {
+    setStates((currentState) => {
+      const currentAmount = currentState[id] ?? 0;
+      if (currentAmount <= 0) return currentState;
+      const nextAmount = currentAmount - 1;
+      const nextState = { ...currentState };
+      if (nextAmount <= 0) {
+        delete nextState[id];
+      } else {
+        nextState[id] = nextAmount;
+      }
+      return nextState;
+    });
   };
 
   const toggleTeam = (code: string) => {
@@ -142,7 +170,9 @@ export function useAlbumCollection() {
     filteredSpecialStickers,
     exactStickerSearch,
     totals,
-    toggleSticker,
+    setStickerAmount,
+    incrementSticker,
+    decrementSticker,
     toggleTeam,
     getGroupProgress,
   };

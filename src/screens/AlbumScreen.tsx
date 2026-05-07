@@ -3,20 +3,26 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { specialSections, StickerCycle } from "@/constants/albumData";
+import { StickerScannerModal } from "@/components/album/StickerScannerModal";
 import { design } from "@/constants/design";
 import { AppScreen } from "@/components/layout/AppScreen";
 import { GlassCard, Pill } from "@/components/ui";
 import { useAlbumCollection } from "@/hooks/useAlbumCollection";
 import { createPost } from "@/services/feedService";
+import type { StickerLookup } from "@/services/stickerScannerService";
 import { useSessionStore } from "@/store/sessionStore";
 import { serializeAlbumProgressPost } from "@/utils/albumProgressPost";
-import { isCollected, isRepeated, makeTeamStickers } from "@/utils/albumUtils";
+import { isCollected, makeTeamStickers } from "@/utils/albumUtils";
 
 export function AlbumScreen() {
   const user = useSessionStore((state) => state.user);
   const [shareVisible, setShareVisible] = useState(false);
   const [shareCaption, setShareCaption] = useState("");
   const [sharing, setSharing] = useState(false);
+  const [quantityModalVisible, setQuantityModalVisible] = useState(false);
+  const [editingStickerCode, setEditingStickerCode] = useState<string | null>(null);
+  const [scannerVisible, setScannerVisible] = useState(false);
+  const [scannerResult, setScannerResult] = useState<{ code: string; country: string; number: number; amount: number } | null>(null);
   const {
     query,
     setQuery,
@@ -29,17 +35,21 @@ export function AlbumScreen() {
     filteredSpecialStickers,
     exactStickerSearch,
     totals,
-    toggleSticker,
+    incrementSticker,
+    decrementSticker,
+    setStickerAmount,
     toggleTeam,
     getGroupProgress,
   } = useAlbumCollection();
 
   const allSpecialCodes = specialSections.flatMap((section) => section.codes);
   const specialCollected = allSpecialCodes.filter((code) => isCollected(getCycle(code))).length;
-  const specialRepeated = allSpecialCodes.filter((code) => isRepeated(getCycle(code))).length;
+  const specialRepeated = allSpecialCodes.reduce((sum, code) => sum + Math.max(0, getCycle(code) - 1), 0);
   const specialMissing = allSpecialCodes.length - specialCollected;
   const specialProgress = Math.round((specialCollected / allSpecialCodes.length) * 100);
   const specialVisibleCodes = filteredSpecialStickers;
+
+  const editingStickerAmount = editingStickerCode ? getCycle(editingStickerCode) : 0;
 
   async function handleShareProgress() {
     if (!user?.id) {
@@ -73,6 +83,76 @@ export function AlbumScreen() {
     }
   }
 
+  function handleStickerPress(code: string) {
+    const amount = getCycle(code);
+    if (amount < 2) {
+      incrementSticker(code);
+      return;
+    }
+
+    setEditingStickerCode(code);
+    setQuantityModalVisible(true);
+  }
+
+  function handleStickerLongPress(code: string) {
+    const amount = getCycle(code);
+    if (amount <= 0) return;
+
+    if (amount >= 3) {
+      Alert.alert("Ajustar repetidas", `A figurinha ${code} esta em ${amount}X.`, [
+        { text: "Remover 1", onPress: () => decrementSticker(code) },
+        {
+          text: "Ajustar",
+          onPress: () => {
+            setEditingStickerCode(code);
+            setQuantityModalVisible(true);
+          },
+        },
+        { text: "Cancelar", style: "cancel" },
+      ]);
+      return;
+    }
+
+    decrementSticker(code);
+  }
+
+  function onCodeDetected(sticker: StickerLookup) {
+    setScannerVisible(false);
+    setScannerResult({
+      code: sticker.code,
+      country: sticker.country,
+      number: sticker.number,
+      amount: getCycle(sticker.code),
+    });
+  }
+
+  function applyScannerResult() {
+    if (!scannerResult) return;
+    const amount = getCycle(scannerResult.code);
+
+    if (amount === 0) {
+      incrementSticker(scannerResult.code);
+      Alert.alert("Scanner", `Figurinha ${scannerResult.code} adicionada ao album.`);
+      setScannerResult(null);
+      return;
+    }
+
+    Alert.alert("Figurinha ja possuida", `Voce ja possui ${scannerResult.code}. Deseja adicionar repetida?`, [
+      { text: "Cancelar", style: "cancel", onPress: () => setScannerResult(null) },
+      {
+        text: "Adicionar repetida",
+        onPress: () => {
+          incrementSticker(scannerResult.code);
+          setScannerResult(null);
+        },
+      },
+    ]);
+  }
+
+  function openScanner() {
+    setScannerVisible(true);
+  }
+
   return (
     <AppScreen>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -81,6 +161,10 @@ export function AlbumScreen() {
             <Text style={styles.eyebrow}>Album Oficial</Text>
             <Text style={styles.title}>Copa do Mundo 2026</Text>
           </View>
+          <Pressable style={styles.scannerButton} onPress={openScanner}>
+            <Ionicons name="scan-outline" size={17} color="#061D0D" />
+            <Text style={styles.shareButtonText}>Scanner</Text>
+          </Pressable>
         </View>
 
         <GlassCard>
@@ -121,7 +205,12 @@ export function AlbumScreen() {
                   {exactStickerSearch.hasSticker ? (exactStickerSearch.isRepeated ? "Voce tem repetida" : "Voce ja tem") : "Voce ainda nao tem"}
                 </Text>
               </View>
-              <StickerCard code={exactStickerSearch.code} cycle={exactStickerSearch.cycle} onPress={() => toggleSticker(exactStickerSearch.code)} />
+              <StickerCard
+                code={exactStickerSearch.code}
+                cycle={exactStickerSearch.cycle}
+                onPress={() => handleStickerPress(exactStickerSearch.code)}
+                onLongPress={() => handleStickerLongPress(exactStickerSearch.code)}
+              />
             </View>
           </GlassCard>
         )}
@@ -159,7 +248,7 @@ export function AlbumScreen() {
                   <Text style={styles.specialTitle}>{section.title}</Text>
                   <View style={styles.stickerGrid}>
                     {sectionCodes.map((code) => (
-                      <StickerCard key={code} code={code} cycle={getCycle(code)} onPress={() => toggleSticker(code)} />
+                      <StickerCard key={code} code={code} cycle={getCycle(code)} onPress={() => handleStickerPress(code)} onLongPress={() => handleStickerLongPress(code)} />
                     ))}
                   </View>
                 </View>
@@ -185,7 +274,7 @@ export function AlbumScreen() {
                 {group.teams.map((team) => {
                   const stickers = makeTeamStickers(team.code);
                   const collected = stickers.filter((s) => isCollected(getCycle(s))).length;
-                  const repeated = stickers.filter((s) => isRepeated(getCycle(s))).length;
+                  const repeated = stickers.reduce((sum, stickerCode) => sum + Math.max(0, getCycle(stickerCode) - 1), 0);
                   const missing = stickers.length - collected;
                   const teamProgress = Math.round((collected / stickers.length) * 100);
                   const expanded = Boolean(expandedTeams[team.code]);
@@ -220,7 +309,7 @@ export function AlbumScreen() {
                           </View>
                           <View style={styles.stickerGrid}>
                             {visibleStickers.map((code) => (
-                              <StickerCard key={code} code={code} cycle={getCycle(code)} onPress={() => toggleSticker(code)} />
+                              <StickerCard key={code} code={code} cycle={getCycle(code)} onPress={() => handleStickerPress(code)} onLongPress={() => handleStickerLongPress(code)} />
                             ))}
                           </View>
                         </View>
@@ -270,19 +359,67 @@ export function AlbumScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={quantityModalVisible} transparent animationType="slide" onRequestClose={() => setQuantityModalVisible(false)}>
+        <View style={styles.bottomSheetBackdrop}>
+          <View style={styles.bottomSheet}>
+            <Text style={styles.modalTitle}>Ajustar quantidade</Text>
+            {editingStickerCode && <Text style={styles.sheetSubtitle}>{editingStickerCode} - {editingStickerAmount}X</Text>}
+            <View style={styles.counterRow}>
+              <Pressable style={styles.counterButton} onPress={() => editingStickerCode && setStickerAmount(editingStickerCode, editingStickerAmount - 1)}>
+                <Text style={styles.counterButtonText}>-</Text>
+              </Pressable>
+              <Text style={styles.counterValue}>{editingStickerAmount}X</Text>
+              <Pressable style={styles.counterButton} onPress={() => editingStickerCode && setStickerAmount(editingStickerCode, editingStickerAmount + 1)}>
+                <Text style={styles.counterButtonText}>+</Text>
+              </Pressable>
+            </View>
+            <Pressable style={styles.publishButton} onPress={() => setQuantityModalVisible(false)}>
+              <Text style={styles.publishButtonText}>Concluir</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <StickerScannerModal
+        visible={scannerVisible}
+        onClose={() => setScannerVisible(false)}
+        onDetected={onCodeDetected}
+      />
+
+      <Modal visible={Boolean(scannerResult)} transparent animationType="slide" onRequestClose={() => setScannerResult(null)}>
+        <View style={styles.bottomSheetBackdrop}>
+          <View style={styles.bottomSheet}>
+            <Text style={styles.modalTitle}>Figurinha detectada</Text>
+            {scannerResult && (
+              <>
+                <Text style={styles.sheetSubtitle}>{scannerResult.country} {scannerResult.number}</Text>
+                <Text style={styles.sheetSubtitle}>Codigo: {scannerResult.code}</Text>
+                <Text style={styles.sheetSubtitle}>{scannerResult.amount > 0 ? `Voce ja possui (${scannerResult.amount}X)` : "Voce ainda nao possui"}</Text>
+              </>
+            )}
+            <Pressable style={styles.publishButton} onPress={applyScannerResult}>
+              <Text style={styles.publishButtonText}>Confirmar</Text>
+            </Pressable>
+            <Pressable style={styles.shareButton} onPress={() => setScannerResult(null)}>
+              <Text style={styles.shareButtonText}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </AppScreen>
   );
 }
 
-function StickerCard({ code, cycle, onPress }: { code: string; cycle: StickerCycle; onPress: () => void }) {
-  const isCollected = cycle === 1 || cycle === 2 || cycle === 3;
-  const isRepeated = cycle === 2;
+function StickerCard({ code, cycle, onPress, onLongPress }: { code: string; cycle: StickerCycle; onPress: () => void; onLongPress: () => void }) {
+  const collected = cycle > 0;
+  const repeated = cycle > 1;
   const label = code.endsWith("1") ? "Escudo" : code.endsWith("2") ? "Time" : "Jogador";
   return (
-    <Pressable onPress={onPress} style={[styles.sticker, isCollected && styles.stickerCollected, isRepeated && styles.stickerRepeated]}>
-      <Text style={[styles.code, isCollected && styles.codeCollected]}>{code}</Text>
-      <Text style={[styles.state, isCollected && styles.stateCollected]}>{label}</Text>
-      {isRepeated && <View style={styles.repeatBadge}><Text style={styles.repeatBadgeText}>x2</Text></View>}
+    <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={280} style={[styles.sticker, collected && styles.stickerCollected]}>
+      <Text style={[styles.code, collected && styles.codeCollected]}>{code}</Text>
+      <Text style={[styles.state, collected && styles.stateCollected]}>{label}</Text>
+      {repeated && <View style={styles.repeatBadge}><Text style={styles.repeatBadgeText}>{cycle}X</Text></View>}
     </Pressable>
   );
 }
@@ -297,427 +434,82 @@ function MiniStat({ label, value, tone }: { label: string; value: string; tone: 
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: 14,
-    paddingTop: 46,
-  },
-  content: {
-    paddingBottom: 120,
-    gap: 10,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  eyebrow: {
-    color: "#8EA0B7",
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-  },
-  title: {
-    color: design.colors.text,
-    fontSize: 24,
-    fontWeight: "800",
-    marginTop: 2,
-    letterSpacing: -0.4,
-  },
-  progressBlock: {
-    paddingTop: 12,
-    paddingHorizontal: 12,
-  },
-  progressTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-  },
-  shareButton: {
-    minHeight: 36,
-    borderRadius: 12,
-    backgroundColor: design.colors.green,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  shareButtonText: {
-    color: "#061D0D",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  progressLabel: {
-    color: "#A6B2C4",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  progressValue: {
-    color: "#F2F5FA",
-    fontSize: 28,
-    fontWeight: "800",
-    marginTop: 2,
-  },
-  progressRail: {
-    marginTop: 8,
-    height: 7,
-    borderRadius: 999,
-    backgroundColor: "#182332",
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#2ED56B",
-  },
-  statsGrid: {
-    flexDirection: "row",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 12,
-  },
-  statCard: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#253244",
-    backgroundColor: "rgba(11,17,27,0.8)",
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-  },
-  statLabel: {
-    color: "#8FA0B7",
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  statValue: {
-    marginTop: 4,
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  filters: {
-    flexDirection: "row",
-    gap: 6,
-    flexWrap: "wrap",
-  },
-  searchWrap: {
-    borderWidth: 1,
-    borderColor: design.colors.border,
-    borderRadius: 12,
-    backgroundColor: "#090D13",
-    paddingHorizontal: 10,
-    height: 40,
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-  },
-  searchInput: {
-    color: "#E8EEF7",
-    flex: 1,
-    fontSize: 13.5,
-    fontWeight: "600",
-  },
-  sticker: {
-    width: "18%",
-    aspectRatio: 0.8,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    borderColor: "#314055",
-    backgroundColor: "rgba(11,17,27,0.82)",
-    marginBottom: 6,
-    position: "relative",
-  },
-  stickerCollected: {
-    borderColor: "#2CFF7E",
-    backgroundColor: "rgba(28,172,85,0.16)",
-    shadowColor: "#2CFF7E",
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-  },
-  stickerRepeated: {
-    borderColor: "#6BA5FF",
-    backgroundColor: "rgba(44,107,255,0.18)",
-  },
-  code: {
-    fontSize: 10.5,
-    fontWeight: "800",
-    color: "#A9B6C9",
-  },
-  codeCollected: {
-    color: "#E8FFF1",
-  },
-  state: {
-    marginTop: 2,
-    fontSize: 9,
-    fontWeight: "600",
-    color: "#8FA0B7",
-  },
-  stateCollected: {
-    color: "#BEECD0",
-  },
-  repeatBadge: {
-    position: "absolute",
-    top: 4,
-    right: 4,
-    backgroundColor: "#2C6BFF",
-    borderRadius: 999,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
-  repeatBadgeText: {
-    color: "#F0F6FF",
-    fontSize: 9,
-    fontWeight: "800",
-  },
-  sectionTitle: {
-    color: design.colors.text,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  specialHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingTop: 12,
-  },
-  specialBlock: {
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 2,
-  },
-  specialTitle: {
-    color: "#F8D064",
-    fontWeight: "700",
-    fontSize: 12.5,
-    marginBottom: 6,
-  },
-  groupHeader: {
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  groupPercent: {
-    color: "#C8D4E7",
-    fontWeight: "700",
-    fontSize: 12,
-  },
-  groupRail: {
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: "#1A2534",
-    marginHorizontal: 12,
-    marginTop: 8,
-    overflow: "hidden",
-  },
-  groupFill: {
-    height: "100%",
-    backgroundColor: "#2ED56B",
-  },
-  teamGrid: {
-    padding: 12,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  teamCard: {
-    borderWidth: 1,
-    borderColor: "#243346",
-    borderRadius: 12,
-    backgroundColor: "rgba(8,12,18,0.94)",
-    padding: 8,
-  },
-  teamCardCompact: {
-    width: "100%",
-  },
-  teamCardExpanded: {
-    width: "100%",
-    borderColor: "rgba(44,255,126,0.34)",
-    backgroundColor: "rgba(9,15,23,0.96)",
-    padding: 10,
-  },
-  teamHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  teamTitleWrap: {
-    flex: 1,
-    paddingRight: 8,
-  },
-  teamName: {
-    color: "#E4EBF5",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  teamSubline: {
-    color: "#8FA0B7",
-    fontSize: 11,
-    fontWeight: "600",
-    marginTop: 2,
-  },
-  teamMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  teamStat: {
-    color: "#9CB0CA",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  repeatLabel: {
-    color: "#9CC0FF",
-    fontSize: 11,
-    fontWeight: "700",
-    marginTop: 2,
-  },
-  teamDetail: {
-    gap: 10,
-  },
-  teamDetailStats: {
-    flexDirection: "row",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingTop: 10,
-  },
-  teamDetailRail: {
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: "#172435",
-    overflow: "hidden",
-  },
-  teamDetailFill: {
-    height: "100%",
-    backgroundColor: design.colors.green,
-  },
-  stickerGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.56)",
-    justifyContent: "center",
-    paddingHorizontal: 16,
-  },
-  shareModal: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(156,176,202,0.22)",
-    backgroundColor: "rgba(10,16,25,0.98)",
-    padding: 14,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  modalTitle: {
-    color: "#F6FAFF",
-    fontSize: 17,
-    fontWeight: "800",
-  },
-  modalClose: {
-    color: "#C9D9FF",
-    fontSize: 13.5,
-    fontWeight: "600",
-  },
-  progressPostPreview: {
-    borderWidth: 1,
-    borderColor: "rgba(245,197,66,0.42)",
-    borderRadius: 16,
-    backgroundColor: "rgba(21,25,24,0.96)",
-    padding: 14,
-  },
-  previewKicker: {
-    color: "#F8D064",
-    fontSize: 11,
-    fontWeight: "800",
-    textTransform: "uppercase",
-  },
-  previewTitle: {
-    color: "#F7F7F8",
-    fontSize: 20,
-    fontWeight: "900",
-    marginTop: 5,
-  },
-  previewRail: {
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: "#1B2635",
-    marginTop: 12,
-    overflow: "hidden",
-  },
-  previewFill: {
-    height: "100%",
-    backgroundColor: design.colors.green,
-  },
-  previewMeta: {
-    color: "#DDE4EE",
-    fontSize: 13,
-    fontWeight: "700",
-    marginTop: 10,
-  },
-  previewMissing: {
-    color: "#9CB0CA",
-    fontSize: 12.5,
-    fontWeight: "600",
-    marginTop: 4,
-  },
-  captionInput: {
-    minHeight: 74,
-    color: design.colors.text,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(156,176,202,0.2)",
-    backgroundColor: "rgba(14,23,34,0.74)",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    textAlignVertical: "top",
-    marginTop: 12,
-    fontSize: 14,
-  },
-  publishButton: {
-    minHeight: 42,
-    borderRadius: 12,
-    backgroundColor: design.colors.green,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 12,
-  },
-  publishButtonText: {
-    color: "#06220F",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  exactSearchResult: {
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  exactSearchCode: {
-    color: "#F7F7F8",
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  exactSearchStatus: {
-    color: "#9CB0CA",
-    fontSize: 12.5,
-    fontWeight: "700",
-    marginTop: 4,
-  },
+  container: { flex: 1, paddingHorizontal: 14, paddingTop: 46 },
+  content: { paddingBottom: 120, gap: 10 },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  eyebrow: { color: "#8EA0B7", fontSize: 11, fontWeight: "600", letterSpacing: 0.8, textTransform: "uppercase" },
+  title: { color: design.colors.text, fontSize: 24, fontWeight: "800", marginTop: 2, letterSpacing: -0.4 },
+  progressBlock: { paddingTop: 12, paddingHorizontal: 12 },
+  progressTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
+  shareButton: { minHeight: 36, borderRadius: 12, backgroundColor: design.colors.green, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center" },
+  scannerButton: { minHeight: 36, borderRadius: 12, backgroundColor: design.colors.green, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 6 },
+  shareButtonText: { color: "#061D0D", fontSize: 13, fontWeight: "800" },
+  progressLabel: { color: "#A6B2C4", fontSize: 12, fontWeight: "600" },
+  progressValue: { color: "#F2F5FA", fontSize: 28, fontWeight: "800", marginTop: 2 },
+  progressRail: { marginTop: 8, height: 7, borderRadius: 999, backgroundColor: "#182332", overflow: "hidden" },
+  progressFill: { height: "100%", backgroundColor: "#2ED56B" },
+  statsGrid: { flexDirection: "row", gap: 8, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 12 },
+  statCard: { flex: 1, borderWidth: 1, borderColor: "#253244", backgroundColor: "rgba(11,17,27,0.8)", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 9 },
+  statLabel: { color: "#8FA0B7", fontSize: 11, fontWeight: "600" },
+  statValue: { marginTop: 4, fontSize: 16, fontWeight: "700" },
+  filters: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+  searchWrap: { borderWidth: 1, borderColor: design.colors.border, borderRadius: 12, backgroundColor: "#090D13", paddingHorizontal: 10, height: 40, alignItems: "center", flexDirection: "row", gap: 8 },
+  searchInput: { color: "#E8EEF7", flex: 1, fontSize: 13.5, fontWeight: "600" },
+  sticker: { width: "18%", aspectRatio: 0.8, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center", borderColor: "#314055", backgroundColor: "rgba(11,17,27,0.82)", marginBottom: 6, position: "relative" },
+  stickerCollected: { borderColor: "#2CFF7E", backgroundColor: "rgba(28,172,85,0.16)", shadowColor: "#2CFF7E", shadowOpacity: 0.25, shadowRadius: 12 },
+  code: { fontSize: 10.5, fontWeight: "800", color: "#A9B6C9" },
+  codeCollected: { color: "#E8FFF1" },
+  state: { marginTop: 2, fontSize: 9, fontWeight: "600", color: "#8FA0B7" },
+  stateCollected: { color: "#BEECD0" },
+  repeatBadge: { position: "absolute", top: 4, right: 4, backgroundColor: "#2CFF7E", borderRadius: 999, paddingHorizontal: 5, paddingVertical: 1 },
+  repeatBadgeText: { color: "#082010", fontSize: 9, fontWeight: "800" },
+  sectionTitle: { color: design.colors.text, fontSize: 15, fontWeight: "800" },
+  specialHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 12, paddingTop: 12 },
+  specialBlock: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 2 },
+  specialTitle: { color: "#F8D064", fontWeight: "700", fontSize: 12.5, marginBottom: 6 },
+  groupHeader: { paddingHorizontal: 12, paddingTop: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  groupPercent: { color: "#C8D4E7", fontWeight: "700", fontSize: 12 },
+  groupRail: { height: 6, borderRadius: 999, backgroundColor: "#1A2534", marginHorizontal: 12, marginTop: 8, overflow: "hidden" },
+  groupFill: { height: "100%", backgroundColor: "#2ED56B" },
+  teamGrid: { padding: 12, flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  teamCard: { borderWidth: 1, borderColor: "#243346", borderRadius: 12, backgroundColor: "rgba(8,12,18,0.94)", padding: 8 },
+  teamCardCompact: { width: "100%" },
+  teamCardExpanded: { width: "100%", borderColor: "rgba(44,255,126,0.34)", backgroundColor: "rgba(9,15,23,0.96)", padding: 10 },
+  teamHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  teamTitleWrap: { flex: 1, paddingRight: 8 },
+  teamName: { color: "#E4EBF5", fontSize: 13, fontWeight: "700" },
+  teamSubline: { color: "#8FA0B7", fontSize: 11, fontWeight: "600", marginTop: 2 },
+  teamMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
+  teamStat: { color: "#9CB0CA", fontSize: 12, fontWeight: "700" },
+  repeatLabel: { color: "#9CC0FF", fontSize: 11, fontWeight: "700", marginTop: 2 },
+  teamDetail: { gap: 10 },
+  teamDetailStats: { flexDirection: "row", gap: 8, paddingHorizontal: 12, paddingTop: 10 },
+  teamDetailRail: { height: 6, borderRadius: 999, backgroundColor: "#172435", overflow: "hidden" },
+  teamDetailFill: { height: "100%", backgroundColor: design.colors.green },
+  stickerGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.56)", justifyContent: "center", paddingHorizontal: 16 },
+  shareModal: { borderRadius: 18, borderWidth: 1, borderColor: "rgba(156,176,202,0.22)", backgroundColor: "rgba(10,16,25,0.98)", padding: 14 },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  modalTitle: { color: "#F6FAFF", fontSize: 17, fontWeight: "800" },
+  modalClose: { color: "#C9D9FF", fontSize: 13.5, fontWeight: "600" },
+  progressPostPreview: { borderWidth: 1, borderColor: "rgba(245,197,66,0.42)", borderRadius: 16, backgroundColor: "rgba(21,25,24,0.96)", padding: 14 },
+  previewKicker: { color: "#F8D064", fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
+  previewTitle: { color: "#F7F7F8", fontSize: 20, fontWeight: "900", marginTop: 5 },
+  previewRail: { height: 8, borderRadius: 999, backgroundColor: "#1B2635", marginTop: 12, overflow: "hidden" },
+  previewFill: { height: "100%", backgroundColor: design.colors.green },
+  previewMeta: { color: "#DDE4EE", fontSize: 13, fontWeight: "700", marginTop: 10 },
+  previewMissing: { color: "#9CB0CA", fontSize: 12.5, fontWeight: "600", marginTop: 4 },
+  captionInput: { minHeight: 74, color: design.colors.text, borderRadius: 14, borderWidth: 1, borderColor: "rgba(156,176,202,0.2)", backgroundColor: "rgba(14,23,34,0.74)", paddingHorizontal: 12, paddingVertical: 10, textAlignVertical: "top", marginTop: 12, fontSize: 14 },
+  publishButton: { minHeight: 42, borderRadius: 12, backgroundColor: design.colors.green, alignItems: "center", justifyContent: "center", marginTop: 12 },
+  publishButtonText: { color: "#06220F", fontSize: 14, fontWeight: "800" },
+  exactSearchResult: { paddingHorizontal: 12, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  exactSearchCode: { color: "#F7F7F8", fontSize: 20, fontWeight: "900" },
+  exactSearchStatus: { color: "#9CB0CA", fontSize: 12.5, fontWeight: "700", marginTop: 4 },
+  bottomSheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.52)" },
+  bottomSheet: { borderTopLeftRadius: 18, borderTopRightRadius: 18, borderWidth: 1, borderColor: "rgba(156,176,202,0.22)", backgroundColor: "rgba(10,16,25,0.98)", padding: 16, paddingBottom: 24 },
+  sheetSubtitle: { color: "#C8D4E7", fontSize: 13, fontWeight: "700", marginTop: 6 },
+  counterRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 16 },
+  counterButton: { width: 48, height: 48, borderRadius: 24, borderWidth: 1, borderColor: "#2CFF7E", alignItems: "center", justifyContent: "center" },
+  counterButtonText: { color: "#E8FFF1", fontSize: 22, fontWeight: "900" },
+  counterValue: { color: "#F6FAFF", fontSize: 22, fontWeight: "900" },
 });

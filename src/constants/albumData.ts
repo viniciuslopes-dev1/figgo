@@ -1,4 +1,4 @@
-export type StickerCycle = 0 | 1 | 2 | 3;
+export type StickerCycle = number;
 
 export type TeamDef = {
   name: string;

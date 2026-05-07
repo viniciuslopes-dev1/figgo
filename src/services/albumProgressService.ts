@@ -24,7 +24,11 @@ function storageKeyForUser(userId: string) {
 export function computeAlbumTotalsFromStates(states: AlbumStickerStates): AlbumTotals {
   const getCycle = (id: string): StickerCycle => states[id] ?? 0;
   const totalCollected = allStickers.filter((stickerCode) => isCollected(getCycle(stickerCode))).length;
-  const totalRepeated = allStickers.filter((stickerCode) => isRepeated(getCycle(stickerCode))).length;
+  const totalRepeated = allStickers.reduce((sum, stickerCode) => {
+    const amount = getCycle(stickerCode);
+    if (!isRepeated(amount)) return sum;
+    return sum + (amount - 1);
+  }, 0);
   const progress = Math.round((totalCollected / allStickers.length) * 100);
   return {
     totalStickers: allStickers.length,
@@ -41,8 +45,8 @@ export async function loadAlbumStatesForUser(userId: string) {
     const parsed = JSON.parse(raw) as Record<string, number>;
     const normalized: AlbumStickerStates = {};
     for (const [key, value] of Object.entries(parsed)) {
-      if (value === 0 || value === 1 || value === 2 || value === 3) {
-        normalized[key] = value;
+      if (Number.isFinite(value) && value >= 0) {
+        normalized[key] = value === 3 ? 2 : Math.floor(value);
       }
     }
     return normalized;
